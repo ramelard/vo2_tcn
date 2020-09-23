@@ -6,34 +6,49 @@ import numpy as np
 from datetime import datetime
 import util
 import pandas as pd
+import argparse
 
 from tcn import TCN
 
-# # TODO: disabling GPU
+# # Disables GPU
 # tf.config.set_visible_devices([], 'GPU')
+parser = argparse.ArgumentParser(description='VO2 TCN Prediction')
 
-# TODO: change to command line arg
-USE_DEMOGRAPHICS = False
+parser.add_argument('--use_demographics', default=False, action='store_true', help='use static demographic info in training')
+parser.add_argument('--seq_len', default=120, type=int, help='sequence length')
+parser.add_argument('--feature_list', default='WR,HR,VE,BF,HRR', type=str, help='comma separated list of features from {WR, HR, VE, BF, HRR}')
+parser.add_argument('--seq_step_train', default=5, type=int, help='steps in between training sequences')
+parser.add_argument('--vo2_type', default='VO2', type=str, help='VO2 or VO2_rel')
+parser.add_argument('--nb_filters', default=24, type=int, help='number of conv1d filters')
+parser.add_argument('--kernel_size', default=8, type=int, help='TCN kernel size')
+parser.add_argument('--max_dilation_pow', default=3, type=int, help='maximum dilation power specified as x where (2^x)')
+parser.add_argument('--dropout_rate', default=0.2, type=float, help='dropout rate')
+parser.add_argument('--batch_size', default=32, type=int, help='training batch size')
+parser.add_argument('--epochs', default=25, type=int, help='training epochs')
+parser.add_argument('--note', default='', type=str, help='note to log with model')
+args = parser.parse_args()
 
-seq_len = 120
-feature_list = ['WR', 'HR', 'VE', 'BF', 'HRR']
-seq_step_train = 5
-vo2_type = 'VO2'
+# Dataset parameters
+seq_len = args.seq_len
+feature_list = [s for s in args.feature_list.split(',')]
+seq_step_train = args.seq_step_train
+vo2_type = args.vo2_type
 x_train, x_train_static, y_train, x_val, x_val_static, y_val, x_test, x_test_static, y_test = \
     util.get_x_y(seq_len, feature_list, seq_step_train, vo2_type)
 print('x_train: {}\nx_val: {}\nx_test: {}'.format(x_train.shape, x_val.shape, x_test.shape))
 print('seq_len: {}\nfeature_list: {}'.format(seq_len, feature_list))
 
 # TCN parameters
-nb_filters = 24
-kernel_size = 8
-dilations = [2 ** i for i in range(4)]
-dropout_rate = 0.2
-batch_size = 32
-epochs = 25
-note = ''  # note describing the setup
+use_demographics = args.use_demographics
+nb_filters = args.nb_filters
+kernel_size = args.nb_filters
+dilations = [2 ** i for i in range(args.max_dilation_pow+1)]
+dropout_rate = args.dropout_rate
+batch_size = args.batch_size
+epochs = args.epochs
+note = args.note  # note describing the setup
 
-if USE_DEMOGRAPHICS:
+if use_demographics:
     x_train_all = [x_train, x_train_static]
     x_val_all = [x_val, x_val_static]
     x_test_all = [x_test, x_test_static]
@@ -47,7 +62,7 @@ class PrintSomeValues(Callback):
 
     def on_epoch_begin(self, epoch, logs={}):
         print('y_true, y_pred')
-        if USE_DEMOGRAPHICS:
+        if use_demographics:
             pred = self.model.predict([x_val[:5], x_val_static[:5]])
         else:
             pred = self.model.predict(x_val[:5])
@@ -69,7 +84,7 @@ def run_task():
             name='tcn')(input_layer)
 
     input_layers = [input_layer]
-    if USE_DEMOGRAPHICS:
+    if use_demographics:
         nb_static = x_train_static.shape[1]
         # TODO: use Embedding layer with one-hot indexing (see Esteban 2015/2016), or use directly.
         input_layer_static = Input(shape=(nb_static,))
