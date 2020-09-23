@@ -1,0 +1,11 @@
+seq_len,20
+feature_list,"['WR', 'HR', 'VE', 'BF', 'HRR']"
+seq_step_train,5
+vo2_type,VO2
+nb_filters,24
+kernel_size,8
+dilations,"[1, 2, 4, 8]"
+dropout_rate,0.2
+batch_size,32
+epochs,25
+note,"with demographics (first time)"
