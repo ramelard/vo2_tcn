@@ -12,7 +12,10 @@ from tcn import TCN
 # # TODO: disabling GPU
 # tf.config.set_visible_devices([], 'GPU')
 
-seq_len = 20
+# TODO: change to command line arg
+USE_DEMOGRAPHICS = False
+
+seq_len = 120
 feature_list = ['WR', 'HR', 'VE', 'BF', 'HRR']
 seq_step_train = 5
 vo2_type = 'VO2'
@@ -28,14 +31,27 @@ dilations = [2 ** i for i in range(4)]
 dropout_rate = 0.2
 batch_size = 32
 epochs = 25
-note = 'with demographics (first time)'  # note describing the setup
+note = ''  # note describing the setup
+
+if USE_DEMOGRAPHICS:
+    x_train_all = [x_train, x_train_static]
+    x_val_all = [x_val, x_val_static]
+    x_test_all = [x_test, x_test_static]
+else:
+    x_train_all = x_train
+    x_val_all = x_val
+    x_test_all = x_test
 
 
 class PrintSomeValues(Callback):
 
     def on_epoch_begin(self, epoch, logs={}):
         print('y_true, y_pred')
-        print(np.hstack([y_test[:5], self.model.predict([x_test[:5], x_test_static[:5]])]))
+        if USE_DEMOGRAPHICS:
+            pred = self.model.predict([x_val[:5], x_val_static[:5]])
+        else:
+            pred = self.model.predict(x_val[:5])
+        print(np.hstack([y_test[:5], pred]))
 
 
 def run_task():
@@ -52,21 +68,22 @@ def run_task():
             'relu', 'he_normal', False, True,
             name='tcn')(input_layer)
 
-    # Add static demographic info
-    nb_static = x_train_static.shape[1]
-    # TODO: use Embedding layer with one-hot indexing, or use directly.
-    input_layer_static = Input(shape=(nb_static,))
-    #y = Embedding(nb_static, nb_static)(input_layer_static)
+    input_layers = [input_layer]
+    if USE_DEMOGRAPHICS:
+        nb_static = x_train_static.shape[1]
+        # TODO: use Embedding layer with one-hot indexing (see Esteban 2015/2016), or use directly.
+        input_layer_static = Input(shape=(nb_static,))
+        #y = Embedding(nb_static, nb_static)(input_layer_static)
+        x = tf.keras.layers.concatenate([x, input_layer_static])
+        input_layers.append(input_layer_static)
 
-    xy = tf.keras.layers.concatenate([x, input_layer_static])
-
-    z = Dense(1)(xy)
+    z = Dense(1)(x)
     z = Activation('linear')(z)
     output_layer = z
-    model = Model([input_layer, input_layer_static], output_layer)
+    model = Model(input_layers, output_layer)
     opt = optimizers.Adam(lr=lr, clipnorm=1.)
     model.compile(opt, loss='mean_squared_error')
-    print('model.x = {}, {}'.format(input_layer.shape, input_layer_static.shape))
+    print('model.x = {}'.format([l.shape for l in input_layers]))
     print('model.y = {}'.format(output_layer.shape))
 
     # model = compiled_tcn(return_sequences=False,
@@ -95,10 +112,12 @@ def run_task():
     logdir = 'logs/log' + timestamp
     tensorboard = TensorBoard(log_dir=logdir, update_freq='epoch', profile_batch=0)
 
-    history = model.fit([x_train, x_train_static], y_train, validation_data=([x_val, x_val_static], y_val),
+    history = model.fit(x_train_all, y_train, validation_data=(x_val_all, y_val),
                         epochs=epochs, batch_size=batch_size, callbacks=[psv, tensorboard])
     mdl_dir = 'models/mdl' + timestamp
+    print('Saving model {}...'.format(mdl_dir))
     model.save(mdl_dir)
+    print('Done')
 
     # Save network options for repeatability/understandability.
     opts = {'seq_len': seq_len, 'feature_list': feature_list, 'seq_step_train': seq_step_train, 'vo2_type': vo2_type,
@@ -112,7 +131,7 @@ def run_task():
 
     #model.evaluate(x_test, y_test, verbose=2)
 
-    pred = model.predict([x_val, x_val_static])
+    pred = model.predict(x_val_all)
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     #fig = make_subplots(specs=[[{"secondary_y": True}]])

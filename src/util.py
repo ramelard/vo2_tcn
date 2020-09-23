@@ -125,13 +125,7 @@ def get_x_y(seq_len=10, feature_list=['HR', 'VE', 'BF', 'HRR'], seq_step_train=5
     xval = (xval-mu)/sigma
     xtest = (xtest-mu)/sigma
 
-
     return xtrain, xtrain_static, ytrain, xval, xval_static, yval, xtest, xtest_static, ytest
-
-
-def load_demographics():
-
-    return dtrain, dval
 
 
     # dataset = tf.data.Dataset.from_tensor_slices((df.to_numpy(), vo2.to_numpy()))
