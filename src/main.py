@@ -1,6 +1,6 @@
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Activation, Input, Embedding
-from tensorflow.keras.callbacks import Callback, TensorBoard
+from tensorflow.keras.callbacks import Callback, TensorBoard, ModelCheckpoint
 from tensorflow.keras import Model, Input, optimizers
 import numpy as np
 from datetime import datetime
@@ -15,16 +15,16 @@ from tcn import TCN
 parser = argparse.ArgumentParser(description='VO2 TCN Prediction')
 
 parser.add_argument('--use_demographics', default=False, action='store_true', help='use static demographic info in training')
-parser.add_argument('--seq_len', default=120, type=int, help='sequence length')
+parser.add_argument('--seq_len', default=300, type=int, help='sequence length')
 parser.add_argument('--feature_list', default='WR,HR,VE,BF,HRR', type=str, help='comma separated list of features from {WR, HR, VE, BF, HRR}')
 parser.add_argument('--seq_step_train', default=5, type=int, help='steps in between training sequences')
-parser.add_argument('--vo2_type', default='VO2', type=str, help='VO2 or VO2_rel')
+parser.add_argument('--vo2_type', default='VO2', type=str, help='VO2 or VO2rel')
 parser.add_argument('--nb_filters', default=24, type=int, help='number of conv1d filters')
 parser.add_argument('--kernel_size', default=8, type=int, help='TCN kernel size')
-parser.add_argument('--max_dilation_pow', default=3, type=int, help='maximum dilation power specified as x where (2^x)')
+parser.add_argument('--max_dilation_pow', default=5, type=int, help='maximum dilation power specified as x where (2^x)')
 parser.add_argument('--dropout_rate', default=0.2, type=float, help='dropout rate')
 parser.add_argument('--batch_size', default=32, type=int, help='training batch size')
-parser.add_argument('--epochs', default=25, type=int, help='training epochs')
+parser.add_argument('--epochs', default=100, type=int, help='training epochs')
 parser.add_argument('--note', default='', type=str, help='note to log with model')
 args = parser.parse_args()
 
@@ -69,7 +69,7 @@ class PrintSomeValues(Callback):
         print(np.hstack([y_test[:5], pred]))
 
 
-def run_task():
+def build_model():
     # "The most important factor for picking parameters is to make sure that
     # the TCN has a sufficiently large receptive field by choosing k and d
     # that can cover the amount of context needed for the task." (Bai 2018)
@@ -88,7 +88,7 @@ def run_task():
         nb_static = x_train_static.shape[1]
         # TODO: use Embedding layer with one-hot indexing (see Esteban 2015/2016), or use directly.
         input_layer_static = Input(shape=(nb_static,))
-        #y = Embedding(nb_static, nb_static)(input_layer_static)
+        # y = Embedding(nb_static, nb_static)(input_layer_static)
         x = tf.keras.layers.concatenate([x, input_layer_static])
         input_layers.append(input_layer_static)
 
@@ -100,7 +100,6 @@ def run_task():
     model.compile(opt, loss='mean_squared_error')
     print('model.x = {}'.format([l.shape for l in input_layers]))
     print('model.y = {}'.format(output_layer.shape))
-
     # model = compiled_tcn(return_sequences=False,
     #                      num_feat=x_train.shape[2],
     #                      num_classes=0,
@@ -113,49 +112,63 @@ def run_task():
     #                      regression=True,
     #                      dropout_rate=dropout_rate,
     #                      use_layer_norm=True)
+    return model
+
+
+def run_task():
+    model = build_model()
 
     print(f'x_train.shape = {x_train.shape}')
     print(f'y_train.shape = {y_train.shape}')
-
-    psv = PrintSomeValues()
 
     # Using sparse softmax.
     # http://chappers.github.io/web%20micro%20log/2017/01/26/quick-models-in-keras/
     model.summary()
 
+    # Set up callbacks
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    logdir = 'logs/log' + timestamp
-    tensorboard = TensorBoard(log_dir=logdir, update_freq='epoch', profile_batch=0)
+    log_dir = 'logs/log' + timestamp
+    tensorboard = TensorBoard(log_dir=log_dir, update_freq='epoch', profile_batch=0)
+    chkpt_dir = 'chkpts/chkpt{}/'.format(timestamp)
+    chkpt = ModelCheckpoint(filepath=chkpt_dir + 'epoch{epoch:02d}',
+                            save_best_only=True,
+                            save_weights_only=True,  # False->model.save
+                            verbose=1)
+    psv = PrintSomeValues()
 
+    # To load weights:
+    # model = build_model
+    # model.load_weights(chkpt_dir + 'epoch05')
+
+    # Train!
     history = model.fit(x_train_all, y_train, validation_data=(x_val_all, y_val),
-                        epochs=epochs, batch_size=batch_size, callbacks=[psv, tensorboard])
-    mdl_dir = 'models/mdl' + timestamp
-    print('Saving model {}...'.format(mdl_dir))
-    model.save(mdl_dir)
-    print('Done')
+                        epochs=epochs, batch_size=batch_size, callbacks=[psv, tensorboard, chkpt])
+    # mdl_dir = 'models/mdl' + timestamp
+    # print('Saving model {}...'.format(mdl_dir))
+    # model.save(mdl_dir)
+    # print('Done')
 
-    # Save network options for repeatability/understandability.
-    opts = {'seq_len': seq_len, 'feature_list': feature_list, 'seq_step_train': seq_step_train, 'vo2_type': vo2_type,
-            'nb_filters': nb_filters, 'kernel_size': kernel_size, 'dilations': dilations, 'dropout_rate': dropout_rate,
-            'batch_size': batch_size, 'epochs': epochs, 'note': note}
-    csv_file = mdl_dir + '/network_params.csv'
+    # Save data and network options for repeatability/understandability.
+    opts = vars(args)
+    csv_file = chkpt_dir + '/network_params.csv'
     pd.DataFrame.from_dict(data=opts, orient='index').to_csv(csv_file, header=False)
 
-    #ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=opt, net=net, iterator=iterator)
-    #manager = tf.train.CheckpointManager(ckpt, './ckpts', max_to_keep=3)
-
-    #model.evaluate(x_test, y_test, verbose=2)
-
+    # TODO: load best model
     pred = model.predict(x_val_all)
+
+    y_yhat = np.concatenate((y_val, pred), axis=1)
+    df = pd.DataFrame(y_yhat)
+    df.to_csv(chkpt_dir + '/pred.csv', header=['y', 'yhat'], index=False)
+
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
     #fig = make_subplots(specs=[[{"secondary_y": True}]])
     fig = go.Figure()
     fig.add_trace(go.Scatter(y=y_val.flatten(), line_color='rgb(0.2,0.2,0.2)', name='y'))
     fig.add_trace(go.Scatter(y=pred.flatten(), line_color='rgba(255,0,0,0.8)', name='y_hat'))
-    fig.update_layout(title=mdl_dir)
+    fig.update_layout(title=chkpt_dir)
     fig.show()
-    fig.write_html(mdl_dir + '/plotly.html')
+    fig.write_html(chkpt_dir + '/plotly.html')
 
 
 if __name__ == '__main__':

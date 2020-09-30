@@ -98,7 +98,7 @@ def get_x_y(seq_len=10, feature_list=['HR', 'VE', 'BF', 'HRR'], seq_step_train=5
     :param seq_len: sequence length (s)
     :param feature_list: headers from .csv files
     :param seq_step_train: step between sequences during training
-    :param vo2_type: VO2 or VO2_rel
+    :param vo2_type: VO2 or VO2rel
     :return: xtrain, ytrain, xval, yval, xtest, ytest where x [n,seq_len,nb_feat], y [n,1]
     """
     # https://towardsdatascience.com/time-series-forecasting-with-recurrent-neural-networks-74674e289816
