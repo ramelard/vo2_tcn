@@ -15,20 +15,34 @@ from tcn import TCN
 parser = argparse.ArgumentParser(description='VO2 TCN Prediction')
 
 parser.add_argument('--use_demographics', default=False, action='store_true', help='use static demographic info in training')
-parser.add_argument('--seq_len', default=300, type=int, help='sequence length')
+parser.add_argument('--seq_len', type=int, help='sequence length')
 parser.add_argument('--feature_list', default='WR,HR,VE,BF,HRR', type=str, help='comma separated list of features from {WR, HR, VE, BF, HRR}')
-parser.add_argument('--seq_step_train', default=5, type=int, help='steps in between training sequences')
+parser.add_argument('--seq_step_train', default=3, type=int, help='steps in between training sequences')
 parser.add_argument('--vo2_type', default='VO2', type=str, help='VO2 or VO2rel')
 parser.add_argument('--nb_filters', default=24, type=int, help='number of conv1d filters')
-parser.add_argument('--kernel_size', default=8, type=int, help='TCN kernel size')
+parser.add_argument('--kernel_size', default=4, type=int, help='TCN kernel size')
 parser.add_argument('--max_dilation_pow', default=5, type=int, help='maximum dilation power specified as x where (2^x)')
 parser.add_argument('--dropout_rate', default=0.2, type=float, help='dropout rate')
 parser.add_argument('--batch_size', default=32, type=int, help='training batch size')
-parser.add_argument('--epochs', default=100, type=int, help='training epochs')
-parser.add_argument('--note', default='', type=str, help='note to log with model')
+parser.add_argument('--epochs', default=30, type=int, help='training epochs')
+parser.add_argument('--note', default='p08 test', type=str, help='note to log with model')
+parser.add_argument('--log_dir', default='logs/', type=str, help='tensorboard log dir')
+parser.add_argument('--chkpt_dir', default='chkpts/', type=str, help='tensorflow checkpoint dir')
 args = parser.parse_args()
 
+# TCN parameters
+use_demographics = args.use_demographics
+nb_filters = args.nb_filters
+kernel_size = args.kernel_size
+dilations = [2 ** i for i in range(args.max_dilation_pow+1)]
+dropout_rate = args.dropout_rate
+batch_size = args.batch_size
+epochs = args.epochs
+note = args.note  # note describing the setup
+
 # Dataset parameters
+if args.seq_len is None:
+  args.seq_len = kernel_size * dilations[-1]
 seq_len = args.seq_len
 feature_list = [s for s in args.feature_list.split(',')]
 seq_step_train = args.seq_step_train
@@ -37,16 +51,6 @@ x_train, x_train_static, y_train, x_val, x_val_static, y_val, x_test, x_test_sta
     util.get_x_y(seq_len, feature_list, seq_step_train, vo2_type)
 print('x_train: {}\nx_val: {}\nx_test: {}'.format(x_train.shape, x_val.shape, x_test.shape))
 print('seq_len: {}\nfeature_list: {}'.format(seq_len, feature_list))
-
-# TCN parameters
-use_demographics = args.use_demographics
-nb_filters = args.nb_filters
-kernel_size = args.nb_filters
-dilations = [2 ** i for i in range(args.max_dilation_pow+1)]
-dropout_rate = args.dropout_rate
-batch_size = args.batch_size
-epochs = args.epochs
-note = args.note  # note describing the setup
 
 if use_demographics:
     x_train_all = [x_train, x_train_static]
@@ -127,10 +131,10 @@ def run_task():
 
     # Set up callbacks
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    log_dir = 'logs/log' + timestamp
+    log_dir = args.log_dir + '/log' + timestamp
     tensorboard = TensorBoard(log_dir=log_dir, update_freq='epoch', profile_batch=0)
-    chkpt_dir = 'chkpts/chkpt{}/'.format(timestamp)
-    chkpt = ModelCheckpoint(filepath=chkpt_dir + 'epoch{epoch:02d}',
+    chkpt_dir = args.chkpt_dir + '/chkpt{}/'.format(timestamp)
+    chkpt = ModelCheckpoint(filepath=chkpt_dir, # + 'epoch{epoch:02d}',
                             save_best_only=True,
                             save_weights_only=True,  # False->model.save
                             verbose=1)
@@ -153,22 +157,27 @@ def run_task():
     csv_file = chkpt_dir + '/network_params.csv'
     pd.DataFrame.from_dict(data=opts, orient='index').to_csv(csv_file, header=False)
 
-    # TODO: load best model
-    pred = model.predict(x_val_all)
+    def y_yhat_save_csv_plotly(y, yhat, descriptor):
+        y_yhat = np.concatenate((y, yhat), axis=1)
+        df = pd.DataFrame(y_yhat)
+        csv_filename = 'y_yhat_{}.csv'.format(descriptor)
+        df.to_csv(chkpt_dir + '/' + csv_filename, header=['y', 'yhat'], index=False)
 
-    y_yhat = np.concatenate((y_val, pred), axis=1)
-    df = pd.DataFrame(y_yhat)
-    df.to_csv(chkpt_dir + '/pred.csv', header=['y', 'yhat'], index=False)
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        #fig = make_subplots(specs=[[{"secondary_y": True}]])
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(y=y.flatten(), line_color='rgb(0.2,0.2,0.2)', name='y'))
+        fig.add_trace(go.Scatter(y=yhat.flatten(), line_color='rgba(255,0,0,0.8)', name='y_hat'))
+        fig.update_layout(title=chkpt_dir + '({})'.format(descriptor))
+        fig.show()
+        fig.write_html(chkpt_dir + '/plotly_{}.html'.format(descriptor))
 
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-    #fig = make_subplots(specs=[[{"secondary_y": True}]])
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(y=y_val.flatten(), line_color='rgb(0.2,0.2,0.2)', name='y'))
-    fig.add_trace(go.Scatter(y=pred.flatten(), line_color='rgba(255,0,0,0.8)', name='y_hat'))
-    fig.update_layout(title=chkpt_dir)
-    fig.show()
-    fig.write_html(chkpt_dir + '/plotly.html')
+    # TODO: load best model weights before predicting
+    yhat_val = model.predict(x_val_all)
+    yhat_test = model.predict(x_test_all)
+    y_yhat_save_csv_plotly(y_val, yhat_val, 'val')
+    y_yhat_save_csv_plotly(y_test, yhat_test, 'test')
 
 
 if __name__ == '__main__':
