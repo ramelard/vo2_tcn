@@ -15,17 +15,17 @@ from tcn import TCN
 parser = argparse.ArgumentParser(description='VO2 TCN Prediction')
 
 parser.add_argument('--use_demographics', default=False, action='store_true', help='use static demographic info in training')
-parser.add_argument('--seq_len', type=int, help='sequence length')
+parser.add_argument('--seq_len', default=180, type=int, help='sequence length')
 parser.add_argument('--feature_list', default='WR,HR,VE,BF,HRR', type=str, help='comma separated list of features from {WR, HR, VE, BF, HRR}')
-parser.add_argument('--seq_step_train', default=3, type=int, help='steps in between training sequences')
+parser.add_argument('--seq_step_train', default=5, type=int, help='steps in between training sequences')
 parser.add_argument('--vo2_type', default='VO2', type=str, help='VO2 or VO2rel')
 parser.add_argument('--nb_filters', default=24, type=int, help='number of conv1d filters')
-parser.add_argument('--kernel_size', default=4, type=int, help='TCN kernel size')
-parser.add_argument('--max_dilation_pow', default=5, type=int, help='maximum dilation power specified as x where (2^x)')
+parser.add_argument('--kernel_size', default=8, type=int, help='TCN kernel size')
+parser.add_argument('--max_dilation_pow', default=4, type=int, help='maximum dilation power specified as x where (2^x)')
 parser.add_argument('--dropout_rate', default=0.2, type=float, help='dropout rate')
 parser.add_argument('--batch_size', default=32, type=int, help='training batch size')
-parser.add_argument('--epochs', default=30, type=int, help='training epochs')
-parser.add_argument('--note', default='p08 test', type=str, help='note to log with model')
+parser.add_argument('--epochs', default=50, type=int, help='training epochs')
+parser.add_argument('--note', default='', type=str, help='note to log with model')
 parser.add_argument('--log_dir', default='logs/', type=str, help='tensorboard log dir')
 parser.add_argument('--chkpt_dir', default='chkpts/', type=str, help='tensorflow checkpoint dir')
 args = parser.parse_args()
@@ -42,7 +42,7 @@ note = args.note  # note describing the setup
 
 # Dataset parameters
 if args.seq_len is None:
-  args.seq_len = kernel_size * dilations[-1]
+    args.seq_len = kernel_size * dilations[-1]
 seq_len = args.seq_len
 feature_list = [s for s in args.feature_list.split(',')]
 seq_step_train = args.seq_step_train
@@ -73,54 +73,11 @@ class PrintSomeValues(Callback):
         print(np.hstack([y_test[:5], pred]))
 
 
-def build_model():
-    # "The most important factor for picking parameters is to make sure that
-    # the TCN has a sufficiently large receptive field by choosing k and d
-    # that can cover the amount of context needed for the task." (Bai 2018)
-    # Receptive field = nb_stacks * kernel_size * last_dilation
-    num_feat = x_train.shape[2]
-    max_len = x_train.shape[1]
-    lr = 0.002
-    input_layer = Input(shape=(max_len, num_feat))
-    x = TCN(nb_filters, kernel_size, 1, dilations, 'causal',
-            False, dropout_rate, False,
-            'relu', 'he_normal', False, True,
-            name='tcn')(input_layer)
-
-    input_layers = [input_layer]
-    if use_demographics:
-        nb_static = x_train_static.shape[1]
-        # TODO: use Embedding layer with one-hot indexing (see Esteban 2015/2016), or use directly.
-        input_layer_static = Input(shape=(nb_static,))
-        # y = Embedding(nb_static, nb_static)(input_layer_static)
-        x = tf.keras.layers.concatenate([x, input_layer_static])
-        input_layers.append(input_layer_static)
-
-    z = Dense(1)(x)
-    z = Activation('linear')(z)
-    output_layer = z
-    model = Model(input_layers, output_layer)
-    opt = optimizers.Adam(lr=lr, clipnorm=1.)
-    model.compile(opt, loss='mean_squared_error')
-    print('model.x = {}'.format([l.shape for l in input_layers]))
-    print('model.y = {}'.format(output_layer.shape))
-    # model = compiled_tcn(return_sequences=False,
-    #                      num_feat=x_train.shape[2],
-    #                      num_classes=0,
-    #                      nb_filters=nb_filters,
-    #                      kernel_size=kernel_size,
-    #                      dilations=dilations,
-    #                      nb_stacks=1,
-    #                      max_len=x_train.shape[1],
-    #                      use_skip_connections=False,
-    #                      regression=True,
-    #                      dropout_rate=dropout_rate,
-    #                      use_layer_norm=True)
-    return model
-
-
 def run_task():
-    model = build_model()
+    # model = build_model()
+    opts = vars(args)
+    opts['dilations'] = dilations
+    model = util.build_model(opts, use_demographics=use_demographics, nb_static=x_train_static.shape[1])
 
     print(f'x_train.shape = {x_train.shape}')
     print(f'y_train.shape = {y_train.shape}')
@@ -153,7 +110,6 @@ def run_task():
     # print('Done')
 
     # Save data and network options for repeatability/understandability.
-    opts = vars(args)
     csv_file = chkpt_dir + '/network_params.csv'
     pd.DataFrame.from_dict(data=opts, orient='index').to_csv(csv_file, header=False)
 

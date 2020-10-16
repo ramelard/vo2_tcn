@@ -3,7 +3,43 @@ import numpy as np
 import os
 import re
 import math
+import tensorflow as tf
+from tensorflow.keras import Model, Input, optimizers
+from tensorflow.keras.layers import Dense, Activation
+from tcn import TCN
 import csv
+
+
+def build_model(opts, use_demographics=False, nb_static=None):
+    # "The most important factor for picking parameters is to make sure that
+    # the TCN has a sufficiently large receptive field by choosing k and d
+    # that can cover the amount of context needed for the task." (Bai 2018)
+    # Receptive field = nb_stacks * kernel_size * last_dilation
+    # opts keys: max_len, num_feat, nb_filters, kernel_size, dilations, dropout_rate
+    lr = 0.002
+    input_layer = Input(shape=(opts['max_len'], opts['num_feat']))
+    x = TCN(opts['nb_filters'], opts['kernel_size'], 1, opts['dilations'], 'causal',
+            False, opts['dropout_rate'], False,
+            'relu', 'he_normal', False, True,
+            name='tcn')(input_layer)
+
+    input_layers = [input_layer]
+    if use_demographics:
+        # TODO: use Embedding layer with one-hot indexing (see Esteban 2015/2016), or use directly.
+        input_layer_static = Input(shape=(nb_static,))
+        # y = Embedding(nb_static, nb_static)(input_layer_static)
+        x = tf.keras.layers.concatenate([x, input_layer_static])
+        input_layers.append(input_layer_static)
+
+    z = Dense(1)(x)
+    z = Activation('linear')(z)
+    output_layer = z
+    model = Model(input_layers, output_layer)
+    opt = optimizers.Adam(lr=lr, clipnorm=1.)
+    model.compile(opt, loss='mean_squared_error')
+    print('model.x = {}'.format([l.shape for l in input_layers]))
+    print('model.y = {}'.format(output_layer.shape))
+    return model
 
 
 def generate_rolling_sequence(features, vo2, seq_len, step=5):
