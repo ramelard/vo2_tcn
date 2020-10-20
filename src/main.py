@@ -213,8 +213,9 @@ def run_task():
         # fig.show()
         fig.write_html(chkpt_dir + '/plotly_{}.html'.format(descriptor))
 
-    # TODO: load best model weights before predicting
+    # Load best model weights before predicting
     print('Generating prediction results')
+    model.load_weights(chkpt_dir + '/')
     yhat_val = model.predict(x_val_all)
     yhat_test = model.predict(x_test_all)
     y_yhat_save_csv_plotly(y_val, yhat_val, 'val')
