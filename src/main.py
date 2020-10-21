@@ -40,6 +40,7 @@ parser.add_argument('--chkpt_dir', default='chkpts/', type=str, help='tensorflow
 parser.add_argument('--gpu', default=0, type=int, help='gpu device to use')
 parser.add_argument('--lr', default=0.0005, type=float, help='learning rate')
 parser.add_argument('--model_type', default='zignoli', type=str, help='tcn or zignoli')
+parser.add_argument('--chkpt_save_all', default=False, action='store_true', help='save all chkpts')
 args = parser.parse_args()
 
 #tf.config.experimental.set_visible_devices(gpus[args.gpu], 'GPU')
@@ -145,7 +146,7 @@ def run_task():
     tensorboard = TensorBoard(log_dir=log_dir, update_freq='epoch', profile_batch=0)
     chkpt_dir = os.path.join(args.chkpt_dir, 'chkpt{}/'.format(timestamp))
     chkpt = ModelCheckpoint(filepath=chkpt_dir,  # + 'epoch{epoch:02d}',
-                            save_best_only=True,
+                            save_best_only=not args.chkpt_save_all,
                             save_weights_only=True,  # False->model.save
                             verbose=1)
     psv = PrintSomeValues()
