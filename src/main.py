@@ -117,7 +117,9 @@ class PrintSomeValues(Callback):
         else:
             pred = self.model.predict(x_val[:5])
         print(np.hstack([y_test[:5], pred]))
-        os.system('nvidia-smi')
+        if nb_gpus > 1:
+            # Show distributed usage of GPUs
+            os.system('nvidia-smi')
 
 
 def run_task():
@@ -190,6 +192,7 @@ def run_task():
     while retries > 0:
         try:
             model.load_weights(chkpt_dir)
+            break
         except NotFoundError as e:
             print(e)
             sleep(1)
