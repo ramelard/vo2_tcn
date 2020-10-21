@@ -1,17 +1,19 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Dense, Activation, Input, Embedding
 from tensorflow.keras.callbacks import Callback, TensorBoard, ModelCheckpoint
-from tensorflow.keras import Model, Input, optimizers
+from tensorflow.python.framework.errors_impl import NotFoundError
 import numpy as np
 import pandas as pd
-from simpleflock import SimpleFlock  # TODO: LINUX ONLY
+try:
+    from simpleflock import SimpleFlock  # TODO: LINUX ONLY
+except ImportError:
+    pass
 from datetime import datetime
 import util
 import argparse
+from time import sleep
 import os
-import warnings
-
-from tcn import TCN
+import socket
+from warnings import warn
 
 # # Disables GPU
 # tf.config.set_visible_devices([], 'GPU')
@@ -36,7 +38,7 @@ parser.add_argument('--note', default='', type=str, help='note to log with model
 parser.add_argument('--log_dir', default='logs/', type=str, help='tensorboard log dir')
 parser.add_argument('--chkpt_dir', default='chkpts/', type=str, help='tensorflow checkpoint dir')
 parser.add_argument('--gpu', default=0, type=int, help='gpu device to use')
-parser.add_argument('--lr', default=0.002, type=float, help='learning rate')
+parser.add_argument('--lr', default=0.0005, type=float, help='learning rate')
 args = parser.parse_args()
 
 #tf.config.experimental.set_visible_devices(gpus[args.gpu], 'GPU')
@@ -45,11 +47,11 @@ args = parser.parse_args()
 #else:
 #    distributed_strategy = tf.distribute.get_strategy()
 distributed_strategy = tf.distribute.get_strategy()
-# TODO: only run this on graham
 nb_gpus = len(gpus)
 gpu_idx = 0
 # TODO: suboptimal way to do things. better to release gpu_idx as it's finished.
-if nb_gpus > 1:
+# Only distribute GPU loads on Graham cluster ("gra<node>")
+if socket.gethostname()[:3] == 'gra' and nb_gpus > 1:
     local_scratch = os.getenv('SLURM_TMPDIR')
     with SimpleFlock(local_scratch + '/.gpulock', timeout=10):
         with open(local_scratch + '/gpuidx', 'r+') as f:
@@ -57,7 +59,7 @@ if nb_gpus > 1:
             gpu_idx = int(i) if i else 0
             f.seek(0)
             if gpu_idx > 9:  # TODO
-                warnings.warn('WARNING: double digit GPUs not supported properly')
+                warn('Double digit GPUs not supported properly')
             f.write(str((gpu_idx+1) % nb_gpus))
 print(f'Using /GPU:{gpu_idx}')
 #os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'  # see issue 152
@@ -81,15 +83,20 @@ seq_len = args.seq_len
 feature_list = [s for s in args.feature_list.split(',')]
 seq_step_train = args.seq_step_train
 vo2_type = args.vo2_type
-x_train, x_train_static, y_train, x_val, x_val_static, y_val, x_test, x_test_static, y_test = \
-    util.get_x_y(seq_len, feature_list, seq_step_train, vo2_type)
+train, val, test = util.get_x_y(seq_len, feature_list, seq_step_train, vo2_type)
+x_train = train['x']
+y_train = train['y']
+x_val = val['x']
+y_val = val['y']
+x_test = test['x']
+y_test = test['y']
 print('x_train: {}\nx_val: {}\nx_test: {}'.format(x_train.shape, x_val.shape, x_test.shape))
 print('seq_len: {}\nfeature_list: {}'.format(seq_len, feature_list))
 
 if use_demographics:
-    x_train_all = [x_train, x_train_static]
-    x_val_all = [x_val, x_val_static]
-    x_test_all = [x_test, x_test_static]
+    x_train_all = [x_train, train['static']]
+    x_val_all = [x_val, val['static']]
+    x_test_all = [x_test, test['static']]
 else:
     x_train_all = x_train
     x_val_all = x_val
@@ -104,7 +111,7 @@ class PrintSomeValues(Callback):
     def on_epoch_begin(self, epoch, logs={}):
         print('y_true, y_pred')
         if use_demographics:
-            pred = self.model.predict([x_val[:5], x_val_static[:5]])
+            pred = self.model.predict([x_val[:5], val['static'][:5]])
         else:
             pred = self.model.predict(x_val[:5])
         print(np.hstack([y_test[:5], pred]))
@@ -113,9 +120,14 @@ class PrintSomeValues(Callback):
 
 def run_task():
     # model = build_model()
-    opts = vars(args)
-    opts['dilations'] = dilations
-    model = util.build_model(opts, use_demographics=use_demographics, nb_static=x_train_static.shape[1])
+    opts = {'max_len': seq_len,
+            'num_feat': len(feature_list),
+            'nb_filters': nb_filters,
+            'kernel_size': kernel_size,
+            'dilations': dilations,
+            'dropout_rate': dropout_rate,
+            'lr': lr}
+    model = util.build_model(opts, use_demographics=use_demographics, nb_static=train['static'].shape[1])
 
     print(f'x_train.shape = {x_train.shape}')
     print(f'y_train.shape = {y_train.shape}')
@@ -128,8 +140,8 @@ def run_task():
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     log_dir = args.log_dir + '/log' + timestamp
     tensorboard = TensorBoard(log_dir=log_dir, update_freq='epoch', profile_batch=0)
-    chkpt_dir = args.chkpt_dir + '/chkpt{}/'.format(timestamp)
-    chkpt = ModelCheckpoint(filepath=chkpt_dir, # + 'epoch{epoch:02d}',
+    chkpt_dir = os.path.join(args.chkpt_dir, 'chkpt{}/'.format(timestamp))
+    chkpt = ModelCheckpoint(filepath=chkpt_dir,  # + 'epoch{epoch:02d}',
                             save_best_only=True,
                             save_weights_only=True,  # False->model.save
                             verbose=1)
@@ -149,14 +161,14 @@ def run_task():
     # print('Done')
 
     # Save data and network options for repeatability/understandability.
-    csv_file = chkpt_dir + '/network_params.csv'
-    pd.DataFrame.from_dict(data=opts, orient='index').to_csv(csv_file, header=False)
+    csv_file = os.path.join(chkpt_dir, 'network_params.csv')
+    pd.DataFrame.from_dict(data=vars(args), orient='index').to_csv(csv_file, header=False)
 
     def y_yhat_save_csv_plotly(y, yhat, descriptor):
         y_yhat = np.concatenate((y, yhat), axis=1)
         df = pd.DataFrame(y_yhat)
         csv_filename = 'y_yhat_{}.csv'.format(descriptor)
-        df.to_csv(chkpt_dir + '/' + csv_filename, header=['y', 'yhat'], index=False)
+        df.to_csv(os.path.join(chkpt_dir,  csv_filename), header=['y', 'yhat'], index=False)
 
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
@@ -166,11 +178,20 @@ def run_task():
         fig.add_trace(go.Scatter(y=yhat.flatten(), line_color='rgba(255,0,0,0.8)', name='y_hat'))
         fig.update_layout(title=chkpt_dir + '({})'.format(descriptor))
         # fig.show()
-        fig.write_html(chkpt_dir + '/plotly_{}.html'.format(descriptor))
+        fig.write_html(os.path.join(chkpt_dir, 'plotly_{}.html'.format(descriptor)))
 
     # Load best model weights before predicting
     print('Generating prediction results')
-    model.load_weights(chkpt_dir + '/')
+    retries = 5
+    while retries > 0:
+        try:
+            model.load_weights(chkpt_dir)
+        except NotFoundError as e:
+            print(e)
+            sleep(1)
+            retries -= 1
+    else:
+        warn('Could not load best epoch checkpoint. Using last epoch.')
     yhat_val = model.predict(x_val_all)
     yhat_test = model.predict(x_test_all)
     y_yhat_save_csv_plotly(y_val, yhat_val, 'val')

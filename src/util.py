@@ -15,8 +15,7 @@ def build_model(opts, use_demographics=False, nb_static=None):
     # the TCN has a sufficiently large receptive field by choosing k and d
     # that can cover the amount of context needed for the task." (Bai 2018)
     # Receptive field = nb_stacks * kernel_size * last_dilation
-    # opts keys: max_len, num_feat, nb_filters, kernel_size, dilations, dropout_rate
-    lr = 0.002
+    # opts keys: max_len, num_feat, nb_filters, kernel_size, dilations, dropout_rate, lr
     input_layer = Input(shape=(opts['max_len'], opts['num_feat']))
     x = TCN(opts['nb_filters'], opts['kernel_size'], 1, opts['dilations'], 'causal',
             False, opts['dropout_rate'], False,
@@ -35,10 +34,10 @@ def build_model(opts, use_demographics=False, nb_static=None):
     z = Activation('linear')(z)
     output_layer = z
     model = Model(input_layers, output_layer)
-    opt = optimizers.Adam(lr=lr, clipnorm=1.)
+    opt = optimizers.Adam(lr=opts['lr'], clipnorm=1.)
     model.compile(opt, loss='mean_squared_error')
-    print('model.x = {}'.format([l.shape for l in input_layers]))
-    print('model.y = {}'.format(output_layer.shape))
+    # print('model.x = {}'.format([l.shape for l in input_layers]))
+    # print('model.y = {}'.format(output_layer.shape))
     return model
 
 
@@ -99,6 +98,7 @@ def _get_x_y_helper(seq_len, feature_list, seq_step=5, data_type='train', vo2_ty
     x = np.array([]).reshape(0, seq_len, len(feature_list))
     y = np.array([]).reshape(0, 1)
     xstatic = np.array([]).reshape(0, 3)
+    descr = np.array([]).reshape(0, 2)  # pid, protocol
     # for pid in pids[:2]:
     df = pd.read_csv(data_dir + 'demographics.csv')
     demogs = {p: [h, w, a] for p, h, w, a in zip(df['Participant'], df['Height'], df['Weight'], df['Age'])}
@@ -113,19 +113,15 @@ def _get_x_y_helper(seq_len, feature_list, seq_step=5, data_type='train', vo2_ty
         # Repeat these demographics for all of this participant's data
         xstatic_i = np.tile(xstatic_i, (xi.shape[0], 1))
 
+        m = re.search('(high|mid|low|max)(\d.*).csv', f)
+        descr_i = np.tile(m.groups(), (xi.shape[0], 1))
+
         #print('{}: {}-{}'.format(f, x.shape[0], x.shape[0]+xi.shape[0]))
         x = np.concatenate((x, xi), axis=0)
         y = np.concatenate((y, yi))
-
         xstatic = np.concatenate((xstatic, xstatic_i), axis=0)
-
-        # TODO: uncomment low and mid
-        # xhi, yhi = load_data(pid, 'high')
-        # xmid, ymid = load_data(pid, 'mid')
-        # xlo, ylo = load_data(pid, 'low')
-        # x = np.concatenate((x, xhi, xmid, xlo), axis=0)
-        # y = np.concatenate((y, yhi, ymid, ylo))
-    return x, xstatic, y
+        descr = np.concatenate((descr, descr_i), axis=0)
+    return x, xstatic, y, descr
 
 
 def get_x_y(seq_len=10, feature_list=['HR', 'VE', 'BF', 'HRR'], seq_step_train=5, vo2_type='VO2'):
@@ -149,10 +145,13 @@ def get_x_y(seq_len=10, feature_list=['HR', 'VE', 'BF', 'HRR'], seq_step_train=5
     # https://www.tensorflow.org/tutorials/load_data/csv
     # If all of your input data fits in memory, the simplest way to create a Dataset from them is to convert them to tf.Tensor objects and use Dataset.from_tensor_slices().
 
-    xtrain, xtrain_static, ytrain = _get_x_y_helper(seq_len, feature_list, seq_step=seq_step_train, data_type='train', vo2_type=vo2_type)
+    xtrain, xtrain_static, ytrain, train_descr = \
+        _get_x_y_helper(seq_len, feature_list, seq_step=seq_step_train, data_type='train', vo2_type=vo2_type)
     # Get every sequence in the data for testing
-    xval, xval_static, yval = _get_x_y_helper(seq_len, feature_list, seq_step=1, data_type='validation', vo2_type=vo2_type)
-    xtest, xtest_static, ytest = _get_x_y_helper(seq_len, feature_list, seq_step=1, data_type='test', vo2_type=vo2_type)
+    xval, xval_static, yval, val_descr = \
+        _get_x_y_helper(seq_len, feature_list, seq_step=1, data_type='validation', vo2_type=vo2_type)
+    xtest, xtest_static, ytest, test_descr = \
+        _get_x_y_helper(seq_len, feature_list, seq_step=1, data_type='test', vo2_type=vo2_type)
 
     # TODO: change to estimators? https://towardsdatascience.com/how-to-normalize-features-in-tensorflow-5b7b0e3a4177
     mu = np.mean(xtrain, axis=0)
@@ -161,7 +160,11 @@ def get_x_y(seq_len=10, feature_list=['HR', 'VE', 'BF', 'HRR'], seq_step_train=5
     xval = (xval-mu)/sigma
     xtest = (xtest-mu)/sigma
 
-    return xtrain, xtrain_static, ytrain, xval, xval_static, yval, xtest, xtest_static, ytest
+    train = {'x': xtrain, 'static': xtrain_static, 'y': ytrain, 'descr': train_descr}
+    val = {'x': xval, 'static': xval_static, 'y': yval, 'descr': val_descr}
+    test = {'x': xtest, 'static': xtest_static, 'y': ytest, 'descr': test_descr}
+
+    return train, val, test
 
 
     # dataset = tf.data.Dataset.from_tensor_slices((df.to_numpy(), vo2.to_numpy()))
