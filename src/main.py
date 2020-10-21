@@ -39,6 +39,7 @@ parser.add_argument('--log_dir', default='logs/', type=str, help='tensorboard lo
 parser.add_argument('--chkpt_dir', default='chkpts/', type=str, help='tensorflow checkpoint dir')
 parser.add_argument('--gpu', default=0, type=int, help='gpu device to use')
 parser.add_argument('--lr', default=0.0005, type=float, help='learning rate')
+parser.add_argument('--model_type', default='zignoli', type=str, help='tcn or zignoli')
 args = parser.parse_args()
 
 #tf.config.experimental.set_visible_devices(gpus[args.gpu], 'GPU')
@@ -119,21 +120,23 @@ class PrintSomeValues(Callback):
 
 
 def run_task():
-    # model = build_model()
     opts = {'max_len': seq_len,
-            'num_feat': len(feature_list),
+            'nb_feat': len(feature_list),
             'nb_filters': nb_filters,
             'kernel_size': kernel_size,
             'dilations': dilations,
             'dropout_rate': dropout_rate,
             'lr': lr}
-    model = util.build_model(opts, use_demographics=use_demographics, nb_static=train['static'].shape[1])
+    if args.model_type == 'tcn':
+        model = util.build_model(opts, use_demographics=use_demographics, nb_static=train['static'].shape[1])
+    elif args.model_type == 'zignoli':
+        model = util.build_zignoliLSTM(opts)
+    else:
+        raise ValueError(f'Could not build model type {args.model_type}')
 
     print(f'x_train.shape = {x_train.shape}')
     print(f'y_train.shape = {y_train.shape}')
 
-    # Using sparse softmax.
-    # http://chappers.github.io/web%20micro%20log/2017/01/26/quick-models-in-keras/
     model.summary()
 
     # Set up callbacks

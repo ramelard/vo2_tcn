@@ -5,7 +5,8 @@ import re
 import math
 import tensorflow as tf
 from tensorflow.keras import Model, Input, optimizers
-from tensorflow.keras.layers import Dense, Activation
+from tensorflow.keras.layers import Dense, Activation, LSTM
+from tensorflow.keras import initializers
 from tcn import TCN
 import csv
 
@@ -15,8 +16,8 @@ def build_model(opts, use_demographics=False, nb_static=None):
     # the TCN has a sufficiently large receptive field by choosing k and d
     # that can cover the amount of context needed for the task." (Bai 2018)
     # Receptive field = nb_stacks * kernel_size * last_dilation
-    # opts keys: max_len, num_feat, nb_filters, kernel_size, dilations, dropout_rate, lr
-    input_layer = Input(shape=(opts['max_len'], opts['num_feat']))
+    # opts keys: max_len, nb_feat, nb_filters, kernel_size, dilations, dropout_rate, lr
+    input_layer = Input(shape=(opts['max_len'], opts['nb_feat']))
     x = TCN(opts['nb_filters'], opts['kernel_size'], 1, opts['dilations'], 'causal',
             False, opts['dropout_rate'], False,
             'relu', 'he_normal', False, True,
@@ -38,6 +39,27 @@ def build_model(opts, use_demographics=False, nb_static=None):
     model.compile(opt, loss='mean_squared_error')
     # print('model.x = {}'.format([l.shape for l in input_layers]))
     # print('model.y = {}'.format(output_layer.shape))
+    return model
+
+
+def build_zignoliLSTM(opts):
+    # Stacked LSTM model from Zignoli 2020
+    # nb_timesteps = 105 is approx 70 breaths, assuming BF=40
+    nb_timesteps = opts['max_len']
+    nb_feat = opts['nb_feat']
+    inputs = Input(shape=(nb_timesteps, nb_feat))
+    x = LSTM(units=32, return_sequences=True,
+             bias_initializer=initializers.RandomUniform(minval=0, maxval=0.1))(inputs)
+    x = LSTM(units=32, return_sequences=True,
+             bias_initializer=initializers.RandomUniform(minval=0, maxval=0.1))(x)
+    x = LSTM(units=32,
+             bias_initializer=initializers.RandomUniform(minval=0, maxval=0.1))(x)
+    x = Dense(10, bias_initializer=initializers.RandomUniform(minval=0, maxval=0.1))(x)
+    outputs = Dense(1, bias_initializer=initializers.RandomUniform(minval=0, maxval=0.1))(x)
+
+    model = Model(inputs, outputs)
+    opt = optimizers.Adagrad(learning_rate=opts['lr'])
+    model.compile(opt, loss='categorical_crossentropy')
     return model
 
 
