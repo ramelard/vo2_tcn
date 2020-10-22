@@ -115,8 +115,6 @@ def _get_x_y_helper(seq_len, feature_list, seq_step=5, data_type='train', vo2_ty
         xstatic_i = np.array(demogs[pid]).reshape(1, 3)
         # Repeat these demographics for all of this participant's data
         xstatic_i = np.tile(xstatic_i, (xi.shape[0], 1))
-
-        m = re.search('(high|mid|low|max)(\d.*)(_\d)*.csv', f)
         descr_i = np.tile((protocol, pid), (xi.shape[0], 1))
 
         #print('{}: {}-{}'.format(f, x.shape[0], x.shape[0]+xi.shape[0]))
