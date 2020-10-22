@@ -39,7 +39,7 @@ parser.add_argument('--log_dir', default='logs/', type=str, help='tensorboard lo
 parser.add_argument('--chkpt_dir', default='chkpts/', type=str, help='tensorflow checkpoint dir')
 parser.add_argument('--gpu', default=0, type=int, help='gpu device to use')
 parser.add_argument('--lr', default=0.0005, type=float, help='learning rate')
-parser.add_argument('--model_type', default='zignoli', type=str, help='tcn or zignoli')
+parser.add_argument('--model_type', default='tcn', type=str, help='tcn or zignoli')
 parser.add_argument('--chkpt_save_all', default=False, action='store_true', help='save all chkpts')
 args = parser.parse_args()
 

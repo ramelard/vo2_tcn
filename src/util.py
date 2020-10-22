@@ -82,26 +82,6 @@ def generate_rolling_sequence(features, vo2, seq_len, step=5):
 def _get_x_y_helper(seq_len, feature_list, seq_step=5, data_type='train', vo2_type='VO2'):
     data_dir = '../data/{}/'.format(data_type)
     csv_files = os.listdir(data_dir)
-    # Determine full set of unique participant ids
-    high_matches = [re.search('(\d+).csv', f) for f in csv_files if f.startswith('high')]
-    pids = sorted([int(m.group(1)) for m in high_matches])
-    pids = list(set(pids))  # unique ids
-
-    # TODO: use either filenames or pids and get rid of the other.
-
-    def load_data_pid(pid, protocol):
-        # e.g.: high1.csv
-        filename = '{}{}.csv'.format(protocol, pid)
-        try:
-            df = pd.read_csv(data_dir + filename)
-        except FileNotFoundError:
-            return None, None
-
-        # Columns: WR,HR,DeltaHR,VE,BF,VO2rel,HRR,VO2
-        vo2 = df[vo2_type].to_numpy()
-        features = df[feature_list].to_numpy()
-        x_, y_ = generate_rolling_sequence(features, vo2, seq_len, step=seq_step)
-        return x_, y_
 
     def load_data(filename):
         # e.g.: high1.csv
@@ -129,14 +109,15 @@ def _get_x_y_helper(seq_len, feature_list, seq_step=5, data_type='train', vo2_ty
             continue
         xi, yi = load_data(f)
 
-        match = re.search('(\d+).csv', f)
-        pid = int(match.group(1))
+        match = re.search('(high|mid|low|max)(\d+)(_\d)*.csv', f)
+        protocol = match.group(1)
+        pid = int(match.group(2))
         xstatic_i = np.array(demogs[pid]).reshape(1, 3)
         # Repeat these demographics for all of this participant's data
         xstatic_i = np.tile(xstatic_i, (xi.shape[0], 1))
 
-        m = re.search('(high|mid|low|max)(\d.*).csv', f)
-        descr_i = np.tile(m.groups(), (xi.shape[0], 1))
+        m = re.search('(high|mid|low|max)(\d.*)(_\d)*.csv', f)
+        descr_i = np.tile((protocol, pid), (xi.shape[0], 1))
 
         #print('{}: {}-{}'.format(f, x.shape[0], x.shape[0]+xi.shape[0]))
         x = np.concatenate((x, xi), axis=0)
