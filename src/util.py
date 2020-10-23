@@ -125,7 +125,7 @@ def _get_x_y_helper(seq_len, feature_list, seq_step=5, data_type='train', vo2_ty
     return x, xstatic, y, descr
 
 
-def get_x_y(seq_len=10, feature_list=['HR', 'VE', 'BF', 'HRR'], seq_step_train=5, vo2_type='VO2'):
+def get_x_y(seq_len=10, feature_list=['WR', 'HR', 'VE', 'BF', 'HRR'], seq_step_train=5, vo2_type='VO2'):
     """
     Generates train and test sequences.
     :param seq_len: sequence length (s)
@@ -155,8 +155,8 @@ def get_x_y(seq_len=10, feature_list=['HR', 'VE', 'BF', 'HRR'], seq_step_train=5
         _get_x_y_helper(seq_len, feature_list, seq_step=1, data_type='test', vo2_type=vo2_type)
 
     # TODO: change to estimators? https://towardsdatascience.com/how-to-normalize-features-in-tensorflow-5b7b0e3a4177
-    mu = np.mean(xtrain, axis=0)
-    sigma = np.std(xtrain, axis=0)
+    mu = np.mean(xtrain[:, 0, :], axis=0)
+    sigma = np.std(xtrain[:, 0, :], axis=0)
     xtrain = (xtrain-mu)/sigma
     xval = (xval-mu)/sigma
     xtest = (xtest-mu)/sigma
