@@ -102,14 +102,14 @@ def _get_x_y_helper(seq_len, feature_list, seq_step=5, data_type='train', vo2_ty
     xstatic = np.array([]).reshape(0, 3)
     descr = np.array([]).reshape(0, 2)  # pid, protocol
     # for pid in pids[:2]:
-    df = pd.read_csv(data_dir + 'demographics.csv')
+    df = pd.read_csv(data_dir + '../demographics.csv')
     demogs = {p: [h, w, a] for p, h, w, a in zip(df['Participant'], df['Height'], df['Weight'], df['Age'])}
     for f in csv_files:
-        if f == 'demographics.csv':
-            continue
         xi, yi = load_data(f)
-
         match = re.search('(high|mid|low|max)(\d+)(_\d)*.csv', f)
+        if match is None:
+            print(f'Could not interpret data file {f}. Skipping.')
+            continue
         protocol = match.group(1)
         pid = int(match.group(2))
         xstatic_i = np.array(demogs[pid]).reshape(1, 3)
