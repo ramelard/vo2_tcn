@@ -18,9 +18,18 @@ def build_model(opts, use_demographics=False, nb_static=None):
     # Receptive field = nb_stacks * kernel_size * last_dilation
     # opts keys: max_len, nb_feat, nb_filters, kernel_size, dilations, dropout_rate, lr
     input_layer = Input(shape=(opts['max_len'], opts['nb_feat']))
-    x = TCN(opts['nb_filters'], opts['kernel_size'], 1, opts['dilations'], 'causal',
-            False, opts['dropout_rate'], False,
-            'relu', 'he_normal', False, True,
+    x = TCN(nb_filters=opts['nb_filters'],
+            kernel_size=opts['kernel_size'],
+            nb_stacks=1,
+            dilations=opts['dilations'],
+            padding='causal',
+            use_skip_connections=False,
+            dropout_rate=opts['dropout_rate'],
+            return_sequences=False,
+            activation='linear',
+            kernel_initializer='he_normal',
+            use_batch_norm=False,
+            use_layer_norm=True,
             name='tcn')(input_layer)
 
     input_layers = [input_layer]
@@ -171,8 +180,9 @@ def get_x_y(seq_len=10, feature_list=['WR', 'HR', 'VE', 'BF', 'HRR'], seq_step_t
         denom = sigma
         if 'WR' in feature_list:
             idx = feature_list.index('WR')
-            numer[idx] = min_[idx]
-            denom[idx] = max_[idx] - min_[idx]
+            # Use 0 as theoretical minimum wattage
+            numer[idx] = 0
+            denom[idx] = max_[idx]
     xtrain = (xtrain - numer) / denom
     xval = (xval - numer) / denom
     xtest = (xtest - numer) / denom

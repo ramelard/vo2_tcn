@@ -33,6 +33,7 @@ parser.add_argument('--kernel_size', default=4, type=int, help='TCN kernel size'
 parser.add_argument('--max_dilation_pow', default=5, type=int, help='maximum dilation power specified as x where (2^x)')
 parser.add_argument('--dropout_rate', default=0.2, type=float, help='dropout rate')
 parser.add_argument('--batch_size', default=32, type=int, help='training batch size')
+parser.add_argument('--norm_type', default='mixed', type=int, help='data normalization type: norm [0,1], stand [mu,std], mixed [0,1 for WR]')
 parser.add_argument('--epochs', default=50, type=int, help='training epochs')
 parser.add_argument('--note', default='', type=str, help='note to log with model')
 parser.add_argument('--log_dir', default='logs/', type=str, help='tensorboard log dir')
@@ -80,12 +81,13 @@ note = args.note  # note describing the setup
 
 # Dataset parameters
 if args.seq_len is None:
-    args.seq_len = kernel_size * dilations[-1]
+    args.seq_len = 1+(kernel_size-1)*(2**len(dilations)-1)
 seq_len = args.seq_len
 feature_list = [s for s in args.feature_list.split(',')]
 seq_step_train = args.seq_step_train
 vo2_type = args.vo2_type
-train, val, test = util.get_x_y(seq_len, feature_list, seq_step_train, vo2_type)
+norm_type = args.norm_type
+train, val, test = util.get_x_y(seq_len, feature_list, seq_step_train, vo2_type, norm_type)
 x_train = train['x']
 y_train = train['y']
 x_val = val['x']
