@@ -1,6 +1,7 @@
 import inspect
 from typing import List
 
+import tensorflow as tf
 from tensorflow.keras import backend as K, Model, Input, optimizers
 from tensorflow.keras import layers
 from tensorflow.keras.layers import Activation, SpatialDropout1D, Lambda
@@ -22,7 +23,7 @@ def adjust_dilations(dilations: list):
 class ResidualBlock(Layer):
 
     def __init__(self,
-                 dilation_rate: int,
+                 dilation_rates: list,
                  nb_filters: int,
                  kernel_size: int,
                  padding: str,
@@ -37,7 +38,7 @@ class ResidualBlock(Layer):
         Args:
             x: The previous layer in the model
             training: boolean indicating whether the layer should behave in training mode or in inference mode
-            dilation_rate: The dilation power of 2 we are using for this residual block
+            dilation_rates: The dilation powers of 2 we are using for this residual block
             nb_filters: The number of convolutional filters to use in this block
             kernel_size: The size of the convolutional kernel
             padding: The padding used in the convolutional layers, 'same' or 'causal'.
@@ -49,7 +50,7 @@ class ResidualBlock(Layer):
             kwargs: Any initializers for Layer class.
         """
 
-        self.dilation_rate = dilation_rate
+        self.dilation_rates = dilation_rates
         self.nb_filters = nb_filters
         self.kernel_size = kernel_size
         self.padding = padding
@@ -84,12 +85,12 @@ class ResidualBlock(Layer):
             self.layers = []
             self.res_output_shape = input_shape
 
-            for k in range(2):
+            for k, dilation_rate in enumerate(self.dilation_rates):
                 name = 'conv1D_{}'.format(k)
                 with K.name_scope(name):  # name scope used to make sure weights get unique names
                     self._add_and_activate_layer(Conv1D(filters=self.nb_filters,
                                                         kernel_size=self.kernel_size,
-                                                        dilation_rate=self.dilation_rate,
+                                                        dilation_rate=dilation_rate,
                                                         padding=self.padding,
                                                         name=name,
                                                         kernel_initializer=self.kernel_initializer))
@@ -230,7 +231,8 @@ class TCN(Layer):
     def receptive_field(self):
         assert_msg = 'The receptive field formula works only with power of two dilations.'
         assert all([is_power_of_two(i) for i in self.dilations]), assert_msg
-        return self.kernel_size * self.nb_stacks * self.dilations[-1]
+        # return self.kernel_size * self.nb_stacks * self.dilations[-1]
+        return 1 + (self.kernel_size-1)*(2**len(self.dilations) - 1)
 
     def build(self, input_shape):
 
@@ -243,10 +245,26 @@ class TCN(Layer):
         if not self.use_skip_connections:
             total_num_blocks += 1  # cheap way to do a false case for below
 
+        # [x0,x1,x2,x3,x4,x5] --> [(x0,x1), (x2,x3), (x4,x5)]
+        # [x0,x1,x2,x3,x4] --> [(x0,x1,x3), (x4,x5)]
+        all_dilations = self.dilations
+        if len(all_dilations) == 1:
+            return [[all_dilations]]
+        items = iter(all_dilations)
+        dilation_pairs = []
+        if len(all_dilations) % 2 == 1:
+            d0, d1, d2 = [next(items) for _ in range(3)]
+            dilation_pairs.append((d0, d1, d2))
+        for d0 in items:
+            d1 = next(items)
+            dilation_pairs.append((d0, d1))
+
         for s in range(self.nb_stacks):
-            for i, d in enumerate(self.dilations):
-                res_block_filters = self.nb_filters[i] if isinstance(self.nb_filters, list) else self.nb_filters
-                self.residual_blocks.append(ResidualBlock(dilation_rate=d,
+            # for i, d in enumerate(self.dilations):
+            for d in dilation_pairs:
+                # res_block_filters = self.nb_filters[i] if isinstance(self.nb_filters, list) else self.nb_filters
+                res_block_filters = self.nb_filters
+                self.residual_blocks.append(ResidualBlock(dilation_rates=d,
                                                           nb_filters=res_block_filters,
                                                           kernel_size=self.kernel_size,
                                                           padding=self.padding,
