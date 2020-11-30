@@ -249,15 +249,16 @@ class TCN(Layer):
         # [x0,x1,x2,x3,x4] --> [(x0,x1,x3), (x4,x5)]
         all_dilations = self.dilations
         if len(all_dilations) == 1:
-            return [[all_dilations]]
-        items = iter(all_dilations)
-        dilation_pairs = []
-        if len(all_dilations) % 2 == 1:
-            d0, d1, d2 = [next(items) for _ in range(3)]
-            dilation_pairs.append((d0, d1, d2))
-        for d0 in items:
-            d1 = next(items)
-            dilation_pairs.append((d0, d1))
+            dilation_pairs = [[all_dilations]]
+        else:
+            items = iter(all_dilations)
+            dilation_pairs = []
+            if len(all_dilations) % 2 == 1:
+                d0, d1, d2 = [next(items) for _ in range(3)]
+                dilation_pairs.append((d0, d1, d2))
+            for d0 in items:
+                d1 = next(items)
+                dilation_pairs.append((d0, d1))
 
         for s in range(self.nb_stacks):
             # for i, d in enumerate(self.dilations):
