@@ -172,18 +172,18 @@ def run_task():
     csv_file = os.path.join(chkpt_dir, 'network_params.csv')
     pd.DataFrame.from_dict(data=vars(args), orient='index').to_csv(csv_file, header=False)
 
-    def y_yhat_save_csv_plotly(y, yhat, descriptor):
+    def y_yhat_save_csv_plotly(y, yhat, protocol_pid, descriptor):
         y_yhat = np.concatenate((y, yhat), axis=1)
         df = pd.DataFrame(y_yhat)
         csv_filename = 'y_yhat_{}.csv'.format(descriptor)
         df.to_csv(os.path.join(chkpt_dir,  csv_filename), header=['y', 'yhat'], index=False)
 
         import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-        #fig = make_subplots(specs=[[{"secondary_y": True}]])
+        # Display pid_protocol (e.g. p3_low) on mouse over
+        hover_text = [f'p{r[1]}_{r[0]}' for r in protocol_pid]
         fig = go.Figure()
-        fig.add_trace(go.Scatter(y=y.flatten(), line_color='rgb(0.2,0.2,0.2)', name='y'))
-        fig.add_trace(go.Scatter(y=yhat.flatten(), line_color='rgba(255,0,0,0.8)', name='y_hat'))
+        fig.add_trace(go.Scatter(y=y.flatten(), line_color='rgb(0.2,0.2,0.2)', hovertext=hover_text, name='y'))
+        fig.add_trace(go.Scatter(y=yhat.flatten(), line_color='rgba(255,0,0,0.8)', hovertext=hover_text, name='y_hat'))
         fig.update_layout(title=chkpt_dir + '({})'.format(descriptor))
         # fig.show()
         fig.write_html(os.path.join(chkpt_dir, 'plotly_{}.html'.format(descriptor)))
@@ -203,8 +203,8 @@ def run_task():
         warn('Could not load best epoch checkpoint. Using last epoch.')
     yhat_val = model.predict(x_val_all)
     yhat_test = model.predict(x_test_all)
-    y_yhat_save_csv_plotly(y_val, yhat_val, 'val')
-    y_yhat_save_csv_plotly(y_test, yhat_test, 'test')
+    y_yhat_save_csv_plotly(y_val, yhat_val, val['descr'], 'val')
+    y_yhat_save_csv_plotly(y_test, yhat_test, test['descr'], 'test')
 
 
 if __name__ == '__main__':

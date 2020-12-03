@@ -91,11 +91,13 @@ def generate_rolling_sequence(features, vo2, seq_len, step=5):
 def _get_x_y_helper(seq_len, feature_list, seq_step=5, data_type='train', vo2_type='VO2'):
     data_dir = '../data/{}/'.format(data_type)
     csv_files = os.listdir(data_dir)
+    print(f'FILES FOR {data_type}')
 
     def load_data(filename):
         # e.g.: high1.csv
         # filename = data_dir + '{}{}.csv'.format(protocol, pid)
         try:
+            print(f'Loading {data_dir}{filename}')
             df = pd.read_csv(data_dir + filename)
         except FileNotFoundError:
             return None, None
