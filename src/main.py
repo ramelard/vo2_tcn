@@ -33,7 +33,7 @@ parser.add_argument('--kernel_size', default=4, type=int, help='TCN kernel size'
 parser.add_argument('--max_dilation_pow', default=5, type=int, help='maximum dilation power specified as x where (2^x)')
 parser.add_argument('--dropout_rate', default=0.2, type=float, help='dropout rate')
 parser.add_argument('--batch_size', default=32, type=int, help='training batch size')
-parser.add_argument('--norm_type', default='mixed', type=int, help='data normalization type: norm [0,1], stand [mu,std], mixed [0,1 for WR]')
+parser.add_argument('--norm_type', default='mixed', type=str, help='data normalization type: norm [0,1], stand [mu,std], mixed [0,1 for WR]')
 parser.add_argument('--epochs', default=50, type=int, help='training epochs')
 parser.add_argument('--note', default='', type=str, help='note to log with model')
 parser.add_argument('--log_dir', default='logs/', type=str, help='tensorboard log dir')
@@ -174,8 +174,8 @@ def run_task():
 
     def y_yhat_save_csv_plotly(y, yhat, protocol_pid, descriptor):
         y_yhat = np.concatenate((y, yhat), axis=1)
-        df = pd.DataFrame(y_yhat)
-        csv_filename = 'y_yhat_{}.csv'.format(descriptor)
+        df = pd.DataFrame(np.concatenate([protocol_pid, y_yhat], axis=1), columns=['protocol', 'pid', 'y', 'yhat'])
+        csv_filename = f'y_yhat_{descriptor}.csv'
         df.to_csv(os.path.join(chkpt_dir,  csv_filename), header=['y', 'yhat'], index=False)
 
         import plotly.graph_objects as go
